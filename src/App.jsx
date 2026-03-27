@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSync } from './hooks/useSync.js'
+import ReconciliationView from './components/ReconciliationView.jsx'
 
-const DEFAULT_LEVELS = [50000, 25000, 10000, 5000, 2500, 1000, 500, 250, 100]
-
-const STORAGE_KEY = 'paddle-raise-state'
+const SPOTTER_KEY = 'paddle-raise-spotter'
 
 function formatDollars(amount) {
   if (amount >= 1000) {
@@ -20,61 +20,108 @@ function formatFull(amount) {
   }).format(amount)
 }
 
-function loadState() {
+function loadSpotter() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(SPOTTER_KEY)
     if (raw) return JSON.parse(raw)
   } catch {}
   return null
 }
 
+function randomId() {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+// ── Spotter setup screen ─────────────────────────────────────────────────────
+
+function SpotterSetup({ onReady }) {
+  const [name, setName] = useState('')
+
+  function submit(e) {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const spotter = { id: randomId(), name: trimmed }
+    localStorage.setItem(SPOTTER_KEY, JSON.stringify(spotter))
+    onReady(spotter)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm text-center shadow-2xl">
+        <div className="text-4xl mb-4">🏏</div>
+        <h1 className="text-2xl font-bold text-white mb-1">Paddle Raise Tracker</h1>
+        <p className="text-gray-400 text-sm mb-8">Enter your name so your pledges can be tracked and reconciled.</p>
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <input
+            type="text"
+            placeholder="Your name (e.g. Sarah)"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-600 rounded-xl px-4 py-3 text-white text-lg placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            autoFocus
+            maxLength={30}
+          />
+          <button
+            type="submit"
+            disabled={!name.trim()}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white font-bold text-lg py-3 rounded-xl transition-colors"
+          >
+            Start Spotting
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Main app ─────────────────────────────────────────────────────────────────
+
 export default function App() {
-  const [levels, setLevels] = useState(DEFAULT_LEVELS)
+  const [spotter, setSpotter] = useState(null)
+  const [setupDone, setSetupDone] = useState(false)
+
+  const { state, connected, actions } = useSync()
+
   const [activeLevel, setActiveLevel] = useState(null)
-  const [pledges, setPledges] = useState([]) // { id, level, paddle, timestamp }
   const [paddleInput, setPaddleInput] = useState('')
   const [addingLevel, setAddingLevel] = useState(false)
   const [newLevelInput, setNewLevelInput] = useState('')
-  const [flash, setFlash] = useState(null) // { paddle, type: 'success'|'duplicate' }
+  const [flash, setFlash] = useState(null) // { paddle, type }
   const [showAll, setShowAll] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
-  const pledgeIdRef = useRef(0)
+  const [showReconcile, setShowReconcile] = useState(false)
   const flashTimerRef = useRef(null)
 
-  // Load persisted state on mount
+  // Load spotter identity on mount
   useEffect(() => {
-    const saved = loadState()
+    const saved = loadSpotter()
     if (saved) {
-      setLevels(saved.levels ?? DEFAULT_LEVELS)
-      setPledges(saved.pledges ?? [])
-      pledgeIdRef.current = saved.pledgeIdCounter ?? 0
-      if (saved.activeLevel != null) setActiveLevel(saved.activeLevel)
+      setSpotter(saved)
+      setSetupDone(true)
+    } else {
+      setSetupDone(true) // show setup form
     }
   }, [])
 
-  // Persist state on changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ levels, pledges, pledgeIdCounter: pledgeIdRef.current, activeLevel })
-      )
-    } catch {}
-  }, [levels, pledges, activeLevel])
+  if (!setupDone) return null
+  if (!spotter) return <SpotterSetup onReady={s => setSpotter(s)} />
+
+  const pledges = state?.pledges ?? []
+  const levels = state?.levels ?? []
 
   const totalRaised = pledges.reduce((sum, p) => sum + p.level, 0)
-
   const activeLevelPledges = activeLevel != null
     ? pledges.filter(p => p.level === activeLevel)
     : []
 
+  // My pledges at this level (for duplicate detection from my device)
+  const myActivePledges = activeLevelPledges.filter(p => p.spotterId === spotter.id)
+
   function triggerFlash(paddle, type) {
     clearTimeout(flashTimerRef.current)
     setFlash({ paddle, type })
-    flashTimerRef.current = setTimeout(
-      () => setFlash(null),
-      type === 'success' ? 800 : 1500
-    )
+    flashTimerRef.current = setTimeout(() => setFlash(null), type === 'success' ? 800 : 1500)
   }
 
   function submitPaddle(value) {
@@ -85,14 +132,21 @@ export default function App() {
       return
     }
     const paddleStr = String(num).padStart(3, '0')
-    const exists = pledges.some(p => p.level === activeLevel && p.paddle === paddleStr)
-    if (exists) {
+    // Block if I already recorded this paddle at this level
+    const alreadyMine = pledges.some(
+      p => p.level === activeLevel && p.paddle === paddleStr && p.spotterId === spotter.id
+    )
+    if (alreadyMine) {
       triggerFlash(paddleStr, 'duplicate')
       setPaddleInput('')
       return
     }
-    const id = ++pledgeIdRef.current
-    setPledges(prev => [{ id, level: activeLevel, paddle: paddleStr, timestamp: Date.now() }, ...prev])
+    actions.addPledge({
+      paddle: paddleStr,
+      level: activeLevel,
+      spotterId: spotter.id,
+      spotterName: spotter.name,
+    })
     triggerFlash(paddleStr, 'success')
     setPaddleInput('')
   }
@@ -113,19 +167,10 @@ export default function App() {
     }
   }
 
-  function undoLast() {
-    setPledges(prev => prev.slice(1))
-  }
-
-  function removePledge(id) {
-    setPledges(prev => prev.filter(p => p.id !== id))
-  }
-
   function handleAddLevel() {
     const val = parseInt(newLevelInput.replace(/[^0-9]/g, ''), 10)
     if (!isNaN(val) && val > 0 && !levels.includes(val)) {
-      const updated = [...levels, val].sort((a, b) => b - a)
-      setLevels(updated)
+      actions.addLevel(val)
       setActiveLevel(val)
       setPaddleInput('')
     }
@@ -139,39 +184,59 @@ export default function App() {
       setTimeout(() => setConfirmClear(false), 3000)
       return
     }
-    setPledges([])
-    setLevels(DEFAULT_LEVELS)
+    actions.reset()
     setActiveLevel(null)
     setPaddleInput('')
     setConfirmClear(false)
-    localStorage.removeItem(STORAGE_KEY)
   }
+
+  const paddleDisplay = flash?.paddle
+    ? flash.paddle
+    : paddleInput.padEnd(3, '_').split('').join(' ')
 
   const displayPledges = showAll ? pledges : pledges.slice(0, 20)
 
-  const paddleDisplay = flash?.type === 'success'
-    ? flash.paddle
-    : flash?.type === 'duplicate'
-    ? flash.paddle
-    : paddleInput.padEnd(3, '_').split('').join(' ')
+  if (showReconcile) {
+    return (
+      <ReconciliationView
+        pledges={pledges}
+        onClose={() => setShowReconcile(false)}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col select-none">
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-white leading-tight">Paddle Raise Tracker</h1>
-          <p className="text-gray-400 text-sm leading-none mt-0.5">Record pledges quickly and accurately</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-white leading-tight">Paddle Raise Tracker</h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              {/* Connection indicator */}
+              <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
+              <span className="text-gray-400 text-xs">
+                {connected ? `Connected · ${spotter.name}` : 'Reconnecting…'}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-6">
+
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center">
             <div className="text-2xl font-bold text-green-400">{formatFull(totalRaised)}</div>
             <div className="text-gray-400 text-xs uppercase tracking-wide">Total Raised</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-400">{pledges.length}</div>
-            <div className="text-gray-400 text-xs uppercase tracking-wide">Pledges</div>
+            <div className="text-gray-400 text-xs uppercase tracking-wide">Raw Pledges</div>
           </div>
+          <button
+            onClick={() => setShowReconcile(true)}
+            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold rounded border border-blue-500 transition-colors"
+          >
+            Reconcile
+          </button>
           <button
             onClick={handleClearAll}
             className={`text-xs px-3 py-1.5 rounded border transition-colors ${
@@ -180,10 +245,17 @@ export default function App() {
                 : 'border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500'
             }`}
           >
-            {confirmClear ? 'Tap again to reset' : 'Reset'}
+            {confirmClear ? 'Tap again to reset ALL' : 'Reset'}
           </button>
         </div>
       </header>
+
+      {/* Connecting overlay */}
+      {!connected && !state && (
+        <div className="bg-yellow-900/30 border-b border-yellow-700 px-4 py-2 text-center text-yellow-300 text-sm">
+          Connecting to server… make sure the server is running.
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar: Donation Levels */}
@@ -193,13 +265,15 @@ export default function App() {
           </div>
           <div className="flex flex-col gap-1.5 p-2 flex-1">
             {levels.map(level => {
-              const count = pledges.filter(p => p.level === level).length
+              // Deduplicated count for this level (unique paddle+spotter combos → unique paddles)
+              const uniquePaddles = new Set(pledges.filter(p => p.level === level).map(p => p.paddle))
+              const count = uniquePaddles.size
               const isActive = activeLevel === level
               return (
                 <button
                   key={level}
                   onClick={() => { setActiveLevel(level); setPaddleInput('') }}
-                  className={`w-full text-left px-3 py-3 rounded-lg font-bold text-base transition-all active:scale-95 ${
+                  className={`w-full text-left px-3 py-3 rounded-lg font-bold transition-all active:scale-95 ${
                     isActive
                       ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400'
                       : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
@@ -232,16 +306,10 @@ export default function App() {
                   autoFocus
                 />
                 <div className="flex gap-1">
-                  <button
-                    onClick={handleAddLevel}
-                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded font-semibold"
-                  >
+                  <button onClick={handleAddLevel} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded font-semibold">
                     Add
                   </button>
-                  <button
-                    onClick={() => setAddingLevel(false)}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-1.5 rounded"
-                  >
+                  <button onClick={() => setAddingLevel(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-1.5 rounded">
                     Cancel
                   </button>
                 </div>
@@ -275,7 +343,7 @@ export default function App() {
                   <div className="text-blue-200 text-sm uppercase tracking-wide font-semibold mb-1">Active Level</div>
                   <div className="text-4xl font-bold text-white">{formatFull(activeLevel)}</div>
                   <div className="text-blue-200 text-sm mt-1">
-                    {activeLevelPledges.length} pledge{activeLevelPledges.length !== 1 ? 's' : ''} recorded
+                    {new Set(activeLevelPledges.map(p => p.paddle)).size} unique paddle{new Set(activeLevelPledges.map(p => p.paddle)).size !== 1 ? 's' : ''} recorded
                   </div>
                 </div>
               </div>
@@ -306,7 +374,7 @@ export default function App() {
                     {paddleDisplay}
                   </div>
                   {flash?.type === 'duplicate' && (
-                    <div className="text-red-400 text-sm mt-2 font-semibold">Already recorded at this level!</div>
+                    <div className="text-red-400 text-sm mt-2 font-semibold">Already recorded by you!</div>
                   )}
                   {flash?.type === 'success' && (
                     <div className="text-green-400 text-sm mt-2 font-semibold">Pledge recorded!</div>
@@ -340,21 +408,21 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Paddles recorded at this level */}
-              {activeLevelPledges.length > 0 && (
+              {/* My paddles at this level */}
+              {myActivePledges.length > 0 && (
                 <div className="w-full max-w-xs">
                   <div className="text-gray-400 text-xs uppercase tracking-wide font-semibold mb-2">
-                    Recorded at {formatFull(activeLevel)}
+                    Your entries at {formatFull(activeLevel)}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {activeLevelPledges.map(p => (
+                    {myActivePledges.map(p => (
                       <span
                         key={p.id}
-                        className="group inline-flex items-center bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 font-mono font-bold text-white text-sm gap-1.5"
+                        className="inline-flex items-center bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 font-mono font-bold text-white text-sm gap-1.5"
                       >
                         {p.paddle}
                         <button
-                          onClick={() => removePledge(p.id)}
+                          onClick={() => actions.removePledge(p.id)}
                           className="text-gray-600 hover:text-red-400 transition-colors leading-none text-base"
                           title="Remove pledge"
                         >
@@ -363,6 +431,29 @@ export default function App() {
                       </span>
                     ))}
                   </div>
+
+                  {/* Also show other spotters' entries for this level */}
+                  {activeLevelPledges.filter(p => p.spotterId !== spotter.id).length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-gray-600 text-xs uppercase tracking-wide font-semibold mb-2">
+                        Other spotters
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {activeLevelPledges
+                          .filter(p => p.spotterId !== spotter.id)
+                          .map(p => (
+                            <span
+                              key={p.id}
+                              className="inline-flex items-center bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 font-mono text-gray-400 text-sm gap-1.5"
+                              title={`Recorded by ${p.spotterName}`}
+                            >
+                              {p.paddle}
+                              <span className="text-gray-600 text-xs">{p.spotterName}</span>
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -377,7 +468,7 @@ export default function App() {
             </div>
             {pledges.length > 0 && (
               <button
-                onClick={undoLast}
+                onClick={() => actions.removePledge(pledges[0]?.id)}
                 className="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
               >
                 Undo last
@@ -394,13 +485,14 @@ export default function App() {
                   {displayPledges.map(p => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 text-sm group"
+                      className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 text-sm group"
                     >
-                      <span className="font-mono font-bold text-white">{p.paddle}</span>
-                      <span className="text-green-400 font-semibold">{formatDollars(p.level)}</span>
+                      <span className="font-mono font-bold text-white w-10 shrink-0">{p.paddle}</span>
+                      <span className="text-green-400 font-semibold w-14 shrink-0">{formatDollars(p.level)}</span>
+                      <span className="text-gray-500 text-xs truncate flex-1">{p.spotterName}</span>
                       <button
-                        onClick={() => removePledge(p.id)}
-                        className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-base leading-none"
+                        onClick={() => actions.removePledge(p.id)}
+                        className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-base leading-none shrink-0"
                       >
                         ×
                       </button>
@@ -424,12 +516,12 @@ export default function App() {
             <div className="border-t border-gray-700 p-3 space-y-1">
               <div className="text-gray-500 text-xs uppercase tracking-wide font-semibold mb-2">Breakdown</div>
               {levels.map(level => {
-                const count = pledges.filter(p => p.level === level).length
-                if (count === 0) return null
+                const uniquePaddles = new Set(pledges.filter(p => p.level === level).map(p => p.paddle))
+                if (uniquePaddles.size === 0) return null
                 return (
                   <div key={level} className="flex justify-between text-xs text-gray-400">
-                    <span>{formatDollars(level)} × {count}</span>
-                    <span className="text-green-400 font-semibold">{formatFull(level * count)}</span>
+                    <span>{formatDollars(level)} × {uniquePaddles.size}</span>
+                    <span className="text-green-400 font-semibold">{formatFull(level * uniquePaddles.size)}</span>
                   </div>
                 )
               })}
