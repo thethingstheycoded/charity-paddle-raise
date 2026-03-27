@@ -2,9 +2,7 @@ import { useMemo, useState } from 'react'
 
 function formatFull(amount) {
   return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
+    style: 'currency', currency: 'USD', minimumFractionDigits: 0,
   }).format(amount)
 }
 
@@ -17,16 +15,15 @@ function formatDollars(amount) {
 }
 
 /**
- * Groups raw pledges into deduplicated entries keyed by (paddle, level).
- * Each group has: paddle, level, spotters[], confirmed (2+), solo (1).
+ * Groups raw pledges into deduplicated entries keyed by (paddle, level_amount).
+ * Each group lists the distinct spotters who recorded that pledge.
  */
 function reconcile(pledges) {
   const groups = {}
   for (const p of pledges) {
-    const key = `${p.paddle}:${p.level}`
-    if (!groups[key]) groups[key] = { paddle: p.paddle, level: p.level, entries: [] }
-    // Only add each spotter once per key
-    if (!groups[key].entries.some(e => e.spotterId === p.spotterId)) {
+    const key = `${p.paddle}:${p.level_amount}`
+    if (!groups[key]) groups[key] = { paddle: p.paddle, level: p.level_amount, entries: [] }
+    if (!groups[key].entries.some(e => e.spotter_id === p.spotter_id)) {
       groups[key].entries.push(p)
     }
   }
@@ -34,31 +31,33 @@ function reconcile(pledges) {
 }
 
 function buildSummaryText(groups) {
-  const lines = ['PADDLE RAISE RECONCILIATION', '===========================', '']
   const confirmed = groups.filter(g => g.entries.length > 1)
-  const solo = groups.filter(g => g.entries.length === 1)
-  const total = groups.reduce((s, g) => s + g.level, 0)
+  const solo      = groups.filter(g => g.entries.length === 1)
+  const total     = groups.reduce((s, g) => s + g.level, 0)
 
-  lines.push(`Total Raised: ${formatFull(total)}`)
-  lines.push(`Total Pledges (deduplicated): ${groups.length}`)
-  lines.push(`Confirmed by 2+ spotters: ${confirmed.length}`)
-  lines.push(`Single-spotter (review): ${solo.length}`)
-  lines.push('')
+  const lines = [
+    'PADDLE RAISE RECONCILIATION',
+    '===========================',
+    '',
+    `Total Raised:                  ${formatFull(total)}`,
+    `Total Pledges (deduplicated):  ${groups.length}`,
+    `Confirmed by 2+ spotters:      ${confirmed.length}`,
+    `Single-spotter (review):       ${solo.length}`,
+    '',
+  ]
 
   if (confirmed.length) {
-    lines.push('CONFIRMED PLEDGES')
-    lines.push('-----------------')
+    lines.push('CONFIRMED PLEDGES', '-----------------')
     for (const g of confirmed) {
-      lines.push(`  Paddle ${g.paddle}  ${formatFull(g.level)}  [${g.entries.map(e => e.spotterName).join(', ')}]`)
+      lines.push(`  ${g.paddle}  ${formatFull(g.level).padEnd(12)}  [${g.entries.map(e => e.spotter_name).join(', ')}]`)
     }
     lines.push('')
   }
 
   if (solo.length) {
-    lines.push('REVIEW NEEDED (single spotter)')
-    lines.push('------------------------------')
+    lines.push('REVIEW NEEDED (single spotter)', '------------------------------')
     for (const g of solo) {
-      lines.push(`  Paddle ${g.paddle}  ${formatFull(g.level)}  [${g.entries[0].spotterName}]`)
+      lines.push(`  ${g.paddle}  ${formatFull(g.level).padEnd(12)}  [${g.entries[0].spotter_name}]`)
     }
     lines.push('')
   }
@@ -67,15 +66,17 @@ function buildSummaryText(groups) {
 }
 
 export default function ReconciliationView({ pledges, onClose }) {
-  const [tab, setTab] = useState('all') // 'all' | 'confirmed' | 'solo'
+  const [tab, setTab]       = useState('all')
   const [copied, setCopied] = useState(false)
 
-  const groups = useMemo(() => reconcile(pledges), [pledges])
+  const groups    = useMemo(() => reconcile(pledges), [pledges])
   const confirmed = groups.filter(g => g.entries.length > 1)
-  const solo = groups.filter(g => g.entries.length === 1)
-  const total = groups.reduce((s, g) => s + g.level, 0)
-
+  const solo      = groups.filter(g => g.entries.length === 1)
+  const total     = groups.reduce((s, g) => s + g.level, 0)
   const displayed = tab === 'confirmed' ? confirmed : tab === 'solo' ? solo : groups
+
+  const allSpotters = [...new Map(pledges.map(p => [p.spotter_id, p.spotter_name])).entries()]
+    .map(([id, name]) => ({ id, name }))
 
   function copyToClipboard() {
     navigator.clipboard.writeText(buildSummaryText(groups)).then(() => {
@@ -84,12 +85,9 @@ export default function ReconciliationView({ pledges, onClose }) {
     })
   }
 
-  // Unique spotters who recorded anything
-  const allSpotters = [...new Map(pledges.map(p => [p.spotterId, p.spotterName])).entries()]
-    .map(([id, name]) => ({ id, name }))
-
   return (
     <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col">
+
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -100,7 +98,6 @@ export default function ReconciliationView({ pledges, onClose }) {
           </p>
         </div>
 
-        {/* Summary chips */}
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center">
             <div className="text-2xl font-bold text-green-400">{formatFull(total)}</div>
@@ -135,16 +132,16 @@ export default function ReconciliationView({ pledges, onClose }) {
       {/* Tabs */}
       <div className="bg-gray-900 border-b border-gray-700 flex">
         {[
-          { key: 'all', label: `All (${groups.length})` },
+          { key: 'all',       label: `All (${groups.length})`,        color: '' },
           { key: 'confirmed', label: `Confirmed (${confirmed.length})`, color: 'text-green-400' },
-          { key: 'solo', label: `Review (${solo.length})`, color: 'text-yellow-400' },
+          { key: 'solo',      label: `Review (${solo.length})`,        color: 'text-yellow-400' },
         ].map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
               tab === t.key
-                ? `border-blue-500 ${t.color ?? 'text-white'}`
+                ? `border-blue-500 ${t.color || 'text-white'}`
                 : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
           >
@@ -156,11 +153,11 @@ export default function ReconciliationView({ pledges, onClose }) {
       {/* Legend */}
       <div className="bg-gray-900/50 border-b border-gray-800 px-4 py-2 flex items-center gap-4 text-xs text-gray-500">
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
-          Confirmed by 2+ spotters — counts once
+          <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+          Confirmed by 2+ spotters — counts once toward total
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block"></span>
+          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
           Single spotter — verify before finalizing
         </span>
       </div>
@@ -182,34 +179,19 @@ export default function ReconciliationView({ pledges, onClose }) {
                       : 'bg-yellow-900/20 border-yellow-800/50'
                   }`}
                 >
-                  {/* Confidence dot */}
-                  <span
-                    className={`w-3 h-3 rounded-full shrink-0 ${
-                      isConfirmed ? 'bg-green-500' : 'bg-yellow-500'
-                    }`}
-                  />
-
-                  {/* Paddle + level */}
-                  <span className="font-mono font-bold text-white text-xl w-16 shrink-0">
-                    {group.paddle}
-                  </span>
-                  <span className="font-semibold text-green-400 text-lg w-24 shrink-0">
-                    {formatDollars(group.level)}
-                  </span>
-
-                  {/* Spotter badges */}
+                  <span className={`w-3 h-3 rounded-full shrink-0 ${isConfirmed ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                  <span className="font-mono font-bold text-white text-xl w-16 shrink-0">{group.paddle}</span>
+                  <span className="font-semibold text-green-400 text-lg w-24 shrink-0">{formatDollars(group.level)}</span>
                   <div className="flex flex-wrap gap-1.5 flex-1">
                     {group.entries.map(e => (
                       <span
-                        key={e.spotterId}
+                        key={e.spotter_id}
                         className="bg-gray-700 border border-gray-600 rounded-full px-2.5 py-0.5 text-xs text-gray-200"
                       >
-                        {e.spotterName}
+                        {e.spotter_name}
                       </span>
                     ))}
                   </div>
-
-                  {/* Confidence label */}
                   <span className={`text-xs shrink-0 font-semibold ${isConfirmed ? 'text-green-500' : 'text-yellow-500'}`}>
                     {isConfirmed ? `✓ ${group.entries.length} spotters` : '1 spotter'}
                   </span>
