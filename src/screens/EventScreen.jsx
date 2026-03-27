@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useEvent } from '../hooks/useEvent.js'
+import { useTheme } from '../hooks/useTheme.js'
 import ReconciliationView from '../components/ReconciliationView.jsx'
 
 function formatDollars(amount) {
@@ -18,23 +19,47 @@ function formatFull(amount) {
 
 function formatDate(iso) {
   if (!iso) return ''
-  // iso is a date string like "2024-11-15"
   const [y, m, d] = iso.split('-')
   return new Date(Number(y), Number(m) - 1, Number(d))
     .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// ── Themed element helpers ────────────────────────────────────────────────────
+// These use CSS custom properties set on the root div so every element
+// automatically reflects the logo's extracted colors. The var() fallbacks
+// ensure the app looks correct even with no logo uploaded.
+
+const A = {
+  /** Solid accent background */
+  bg:     { backgroundColor: 'var(--accent, #2563eb)' },
+  /** Accent background, darker */
+  bgDark: { backgroundColor: 'var(--accent-dark, #1d4ed8)' },
+  /** Faint accent tint */
+  faded:  { backgroundColor: 'var(--accent-faded, rgba(37,99,235,0.18))' },
+  /** Accent border color */
+  border: { borderColor: 'var(--accent, #2563eb)' },
+  /** Ring (active selection) */
+  ring:   { boxShadow: '0 0 0 2px var(--accent-light, #60a5fa)' },
+  /** Text on an accent background (auto white/dark) */
+  text:   { color: 'var(--on-accent, #ffffff)' },
+  /** Accent-coloured text */
+  accent: { color: 'var(--accent, #60a5fa)' },
+  /** Tab active indicator */
+  tabBorder: { borderBottomColor: 'var(--accent, #3b82f6)' },
+}
+
 export default function EventScreen({ session, spotter, onLeave }) {
   const { levels, pledges, loading, error, actions } = useEvent(session.eventId)
+  const { cssVars, onImageLoad } = useTheme()
 
-  const [activeLevel, setActiveLevel]   = useState(null)
-  const [paddleInput, setPaddleInput]   = useState('')
-  const [addingLevel, setAddingLevel]   = useState(false)
+  const [activeLevel, setActiveLevel]     = useState(null)
+  const [paddleInput, setPaddleInput]     = useState('')
+  const [addingLevel, setAddingLevel]     = useState(false)
   const [newLevelInput, setNewLevelInput] = useState('')
-  const [flash, setFlash]               = useState(null)
-  const [showAll, setShowAll]           = useState(false)
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [flash, setFlash]                 = useState(null)
+  const [showAll, setShowAll]             = useState(false)
+  const [confirmClear, setConfirmClear]   = useState(false)
+  const [confirmLeave, setConfirmLeave]   = useState(false)
   const [showReconcile, setShowReconcile] = useState(false)
   const flashTimer = useRef(null)
 
@@ -49,13 +74,10 @@ export default function EventScreen({ session, spotter, onLeave }) {
     const num = parseInt(raw, 10)
     if (!raw || isNaN(num) || num < 1 || num > 999) { setPaddleInput(''); return }
     const paddle = String(num).padStart(3, '0')
-
-    // Block only if *I* already recorded this paddle at this level
     const alreadyMine = pledges.some(
       p => p.level_amount === activeLevel && p.paddle === paddle && p.spotter_id === spotter.id
     )
     if (alreadyMine) { triggerFlash(paddle, 'duplicate'); setPaddleInput(''); return }
-
     actions.addPledge({ paddle, levelAmount: activeLevel, spotterId: spotter.id, spotterName: spotter.name })
     triggerFlash(paddle, 'success')
     setPaddleInput('')
@@ -87,35 +109,22 @@ export default function EventScreen({ session, spotter, onLeave }) {
   }
 
   function handleClearPledges() {
-    if (!confirmClear) {
-      setConfirmClear(true)
-      setTimeout(() => setConfirmClear(false), 3000)
-      return
-    }
-    actions.clearPledges()
-    setActiveLevel(null)
-    setPaddleInput('')
-    setConfirmClear(false)
+    if (!confirmClear) { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 3000); return }
+    actions.clearPledges(); setActiveLevel(null); setPaddleInput(''); setConfirmClear(false)
   }
 
   function handleLeave() {
-    if (!confirmLeave) {
-      setConfirmLeave(true)
-      setTimeout(() => setConfirmLeave(false), 3000)
-      return
-    }
+    if (!confirmLeave) { setConfirmLeave(true); setTimeout(() => setConfirmLeave(false), 3000); return }
     onLeave()
   }
 
-  const activeLevelPledges = activeLevel != null ? pledges.filter(p => p.level_amount === activeLevel) : []
-  const myActivePledges    = activeLevelPledges.filter(p => p.spotter_id === spotter.id)
+  const activeLevelPledges  = activeLevel != null ? pledges.filter(p => p.level_amount === activeLevel) : []
+  const myActivePledges     = activeLevelPledges.filter(p => p.spotter_id === spotter.id)
   const othersActivePledges = activeLevelPledges.filter(p => p.spotter_id !== spotter.id)
 
-  // Deduplicated total (unique paddle+level pairs)
-  const uniquePledgeCount = new Set(pledges.map(p => `${p.paddle}:${p.level_amount}`)).size
-  const totalRaised = [...new Map(
-    pledges.map(p => [`${p.paddle}:${p.level_amount}`, p.level_amount])
-  ).values()].reduce((s, v) => s + v, 0)
+  const uniquePairs     = new Map(pledges.map(p => [`${p.paddle}:${p.level_amount}`, p.level_amount]))
+  const uniqueCount     = uniquePairs.size
+  const totalRaised     = [...uniquePairs.values()].reduce((s, v) => s + v, 0)
 
   const paddleDisplay = flash?.paddle
     ? flash.paddle
@@ -124,17 +133,39 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const displayPledges = showAll ? pledges : pledges.slice(0, 20)
 
   if (showReconcile) {
-    return <ReconciliationView pledges={pledges} onClose={() => setShowReconcile(false)} />
+    return <ReconciliationView pledges={pledges} cssVars={cssVars} onClose={() => setShowReconcile(false)} />
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col select-none">
+    <div
+      className="min-h-screen bg-gray-950 text-white flex flex-col select-none"
+      style={cssVars}
+    >
+      {/* Hidden image for color extraction — crossOrigin required for canvas read */}
+      {session.logoUrl && (
+        <img
+          src={session.logoUrl}
+          alt=""
+          crossOrigin="anonymous"
+          onLoad={e => onImageLoad(e.target)}
+          className="hidden"
+        />
+      )}
 
       {/* ── Header ── */}
-      <header className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-lg font-bold text-white leading-tight">{session.name}</h1>
-          <div className="flex items-center gap-2 mt-0.5">
+      <header className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center gap-4 flex-wrap">
+        {/* Logo */}
+        {session.logoUrl && (
+          <img
+            src={session.logoUrl}
+            alt="Event logo"
+            className="h-10 w-auto max-w-24 object-contain rounded shrink-0"
+          />
+        )}
+
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-bold text-white leading-tight truncate">{session.name}</h1>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-gray-500 text-xs">{formatDate(session.eventDate)}</span>
             <span className="text-gray-600 text-xs">·</span>
             <span className="text-gray-500 text-xs">Code: <span className="font-mono text-gray-400">{session.code}</span></span>
@@ -149,12 +180,13 @@ export default function EventScreen({ session, spotter, onLeave }) {
             <div className="text-gray-500 text-xs uppercase tracking-wide">Raised</div>
           </div>
           <div className="text-center">
-            <div className="text-xl font-bold text-blue-400">{uniquePledgeCount}</div>
+            <div className="text-xl font-bold" style={A.accent}>{uniqueCount}</div>
             <div className="text-gray-500 text-xs uppercase tracking-wide">Pledges</div>
           </div>
           <button
             onClick={() => setShowReconcile(true)}
-            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold rounded border border-blue-500 transition-colors"
+            style={{ ...A.bgDark, ...A.border }}
+            className="px-3 py-1.5 text-white text-sm font-semibold rounded border transition-colors hover:brightness-110"
           >
             Reconcile
           </button>
@@ -182,14 +214,10 @@ export default function EventScreen({ session, spotter, onLeave }) {
       </header>
 
       {loading && (
-        <div className="bg-gray-900 border-b border-gray-800 px-4 py-2 text-center text-gray-500 text-sm">
-          Loading event data…
-        </div>
+        <div className="bg-gray-900 border-b border-gray-800 px-4 py-2 text-center text-gray-500 text-sm">Loading event data…</div>
       )}
       {error && (
-        <div className="bg-red-900/30 border-b border-red-800 px-4 py-2 text-center text-red-300 text-sm">
-          {error}
-        </div>
+        <div className="bg-red-900/30 border-b border-red-800 px-4 py-2 text-center text-red-300 text-sm">{error}</div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
@@ -207,15 +235,17 @@ export default function EventScreen({ session, spotter, onLeave }) {
                 <button
                   key={level}
                   onClick={() => { setActiveLevel(level); setPaddleInput('') }}
+                  style={isActive ? { ...A.bg, ...A.ring } : {}}
                   className={`w-full text-left px-3 py-3 rounded-lg font-bold transition-all active:scale-95 ${
-                    isActive
-                      ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400'
-                      : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                    isActive ? 'text-white shadow-lg' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
                   }`}
                 >
                   <div className="text-lg">{formatDollars(level)}</div>
                   {uniquePaddles.size > 0 && (
-                    <div className={`text-xs font-normal mt-0.5 ${isActive ? 'text-blue-200' : 'text-gray-400'}`}>
+                    <div
+                      className="text-xs font-normal mt-0.5"
+                      style={isActive ? { color: 'var(--on-accent, white)', opacity: 0.8 } : { color: '#9ca3af' }}
+                    >
                       {uniquePaddles.size} pledge{uniquePaddles.size !== 1 ? 's' : ''}
                     </div>
                   )}
@@ -224,7 +254,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
             })}
           </div>
 
-          {/* Add level */}
           <div className="p-2 border-t border-gray-700">
             {addingLevel ? (
               <div className="flex flex-col gap-1.5">
@@ -233,11 +262,15 @@ export default function EventScreen({ session, spotter, onLeave }) {
                   value={newLevelInput}
                   onChange={e => setNewLevelInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleAddLevel(); if (e.key === 'Escape') setAddingLevel(false) }}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-400"
                   autoFocus
                 />
                 <div className="flex gap-1">
-                  <button onClick={handleAddLevel} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded font-semibold">Add</button>
+                  <button
+                    onClick={handleAddLevel}
+                    style={A.bg}
+                    className="flex-1 text-white text-xs py-1.5 rounded font-semibold hover:brightness-110"
+                  >Add</button>
                   <button onClick={() => setAddingLevel(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-1.5 rounded">Cancel</button>
                 </div>
               </div>
@@ -256,20 +289,37 @@ export default function EventScreen({ session, spotter, onLeave }) {
         <main className="flex-1 flex flex-col items-center justify-start p-4 gap-4 overflow-y-auto">
           {activeLevel === null ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <div className="text-5xl mb-3">←</div>
-                <div className="text-xl font-semibold text-gray-400">Select a donation level</div>
-                <div className="text-sm mt-2">Tap a level on the left to start recording pledges</div>
-              </div>
+              {session.logoUrl ? (
+                <div className="text-center">
+                  <img
+                    src={session.logoUrl}
+                    alt="Event logo"
+                    className="h-24 w-auto max-w-48 object-contain mx-auto mb-6 opacity-40"
+                  />
+                  <div className="text-xl font-semibold text-gray-400">Select a donation level</div>
+                  <div className="text-sm mt-2 text-gray-600">Tap a level on the left to start recording pledges</div>
+                </div>
+              ) : (
+                <div className="text-center text-gray-500">
+                  <div className="text-5xl mb-3">←</div>
+                  <div className="text-xl font-semibold text-gray-400">Select a donation level</div>
+                  <div className="text-sm mt-2">Tap a level on the left to start recording pledges</div>
+                </div>
+              )}
             </div>
           ) : (
             <>
               {/* Active level badge */}
               <div className="w-full max-w-xs">
-                <div className="bg-blue-600 rounded-2xl px-6 py-4 text-center shadow-xl">
-                  <div className="text-blue-200 text-sm uppercase tracking-wide font-semibold mb-1">Active Level</div>
-                  <div className="text-4xl font-bold text-white">{formatFull(activeLevel)}</div>
-                  <div className="text-blue-200 text-sm mt-1">
+                <div
+                  style={A.bg}
+                  className="rounded-2xl px-6 py-4 text-center shadow-xl"
+                >
+                  <div className="text-sm uppercase tracking-wide font-semibold mb-1" style={{ color: 'var(--on-accent, white)', opacity: 0.75 }}>
+                    Active Level
+                  </div>
+                  <div className="text-4xl font-bold" style={A.text}>{formatFull(activeLevel)}</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--on-accent, white)', opacity: 0.7 }}>
                     {new Set(activeLevelPledges.map(p => p.paddle)).size} unique paddle{new Set(activeLevelPledges.map(p => p.paddle)).size !== 1 ? 's' : ''} recorded
                   </div>
                 </div>
@@ -363,10 +413,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
               All Pledges ({pledges.length})
             </div>
             {pledges.length > 0 && (
-              <button
-                onClick={() => actions.removePledge(pledges[0]?.id)}
-                className="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
-              >
+              <button onClick={() => actions.removePledge(pledges[0]?.id)} className="text-xs text-gray-500 hover:text-yellow-400 transition-colors">
                 Undo last
               </button>
             )}
@@ -381,12 +428,9 @@ export default function EventScreen({ session, spotter, onLeave }) {
                   {displayPledges.map(p => (
                     <div key={p.id} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 text-sm group">
                       <span className="font-mono font-bold text-white w-10 shrink-0">{p.paddle}</span>
-                      <span className="text-green-400 font-semibold w-14 shrink-0">{formatDollars(p.level_amount)}</span>
+                      <span className="font-semibold w-14 shrink-0" style={A.accent}>{formatDollars(p.level_amount)}</span>
                       <span className="text-gray-500 text-xs truncate flex-1">{p.spotter_name}</span>
-                      <button
-                        onClick={() => actions.removePledge(p.id)}
-                        className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-base leading-none shrink-0"
-                      >×</button>
+                      <button onClick={() => actions.removePledge(p.id)} className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-base leading-none shrink-0">×</button>
                     </div>
                   ))}
                 </div>
@@ -399,7 +443,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
             )}
           </div>
 
-          {/* Breakdown */}
           {pledges.length > 0 && (
             <div className="border-t border-gray-700 p-3 space-y-1">
               <div className="text-gray-500 text-xs uppercase tracking-wide font-semibold mb-2">Breakdown</div>

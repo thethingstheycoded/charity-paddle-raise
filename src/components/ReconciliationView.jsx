@@ -65,7 +65,7 @@ function buildSummaryText(groups) {
   return lines.join('\n')
 }
 
-export default function ReconciliationView({ pledges, onClose }) {
+export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
   const [tab, setTab]       = useState('all')
   const [copied, setCopied] = useState(false)
 
@@ -86,7 +86,7 @@ export default function ReconciliationView({ pledges, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col">
+    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col" style={cssVars}>
 
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
@@ -141,9 +141,10 @@ export default function ReconciliationView({ pledges, onClose }) {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
               tab === t.key
-                ? `border-blue-500 ${t.color || 'text-white'}`
+                ? `${t.color || 'text-white'}`
                 : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
+            style={tab === t.key ? { borderBottomColor: 'var(--accent, #3b82f6)' } : {}}
           >
             {t.label}
           </button>
