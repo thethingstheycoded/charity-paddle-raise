@@ -86,8 +86,9 @@ export function useTheme() {
   const onImageLoad = useCallback(async (img) => {
     if (!img) return
     try {
-      const { default: ColorThief } = await import('colorthief')
-      const palette = new ColorThief().getPalette(img, 8)
+      const ColorThief = (await import('colorthief')).default
+      const ct = typeof ColorThief === 'function' ? new ColorThief() : ColorThief
+      const palette = ct.getPalette(img, 8)
       setTheme(buildTheme(pickBestColor(palette)))
     } catch (err) {
       // CORS block or canvas taint — silently fall back to default blue

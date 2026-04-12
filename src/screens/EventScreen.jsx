@@ -45,10 +45,12 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const [showAll, setShowAll]             = useState(false)
   const [confirmClear, setConfirmClear]   = useState(false)
   const [confirmLeave, setConfirmLeave]   = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(null)
   const [showReconcile, setShowReconcile] = useState(false)
-  const flashTimer    = useRef(null)
-  const carouselRef   = useRef(null)
-  const activeLvlRef  = useRef(null)
+  const flashTimer      = useRef(null)
+  const confirmRmTimer  = useRef(null)
+  const carouselRef     = useRef(null)
+  const activeLvlRef    = useRef(null)
 
   // Scroll the active level pill to center whenever it changes
   useEffect(() => {
@@ -110,6 +112,18 @@ export default function EventScreen({ session, spotter, onLeave }) {
     }
     setNewLevelInput('')
     setAddingLevel(false)
+  }
+
+  function handleRemovePledge(id) {
+    if (confirmRemove !== id) {
+      clearTimeout(confirmRmTimer.current)
+      setConfirmRemove(id)
+      confirmRmTimer.current = setTimeout(() => setConfirmRemove(null), 2000)
+    } else {
+      clearTimeout(confirmRmTimer.current)
+      setConfirmRemove(null)
+      actions.removePledge(id)
+    }
   }
 
   function handleClearPledges() {
@@ -217,10 +231,11 @@ export default function EventScreen({ session, spotter, onLeave }) {
       )}
 
       {/* ── Level carousel ── */}
-      <div className="bg-gray-900 border-b border-gray-700 shrink-0">
+      <div className="bg-gray-900 border-b border-gray-700 shrink-0 flex items-stretch">
+        {/* Scrollable pills */}
         <div
           ref={carouselRef}
-          className="flex gap-2 px-4 py-2 overflow-x-auto"
+          className="flex gap-2 px-4 py-2 overflow-x-auto flex-1"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {levels.map(level => {
@@ -250,10 +265,12 @@ export default function EventScreen({ session, spotter, onLeave }) {
               </button>
             )
           })}
+        </div>
 
-          {/* Add level */}
+        {/* Add level — fixed to right edge */}
+        <div className="flex items-center px-2 py-2 border-l border-gray-700 bg-gray-900 shrink-0">
           {addingLevel ? (
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5">
               <input
                 type="text" inputMode="numeric" placeholder="e.g. 750"
                 value={newLevelInput}
@@ -268,7 +285,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
           ) : (
             <button
               onClick={() => setAddingLevel(true)}
-              className="shrink-0 bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg transition-colors"
+              className="bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 text-gray-400 hover:text-white text-sm px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
             >+ Level</button>
           )}
         </div>
@@ -359,9 +376,11 @@ export default function EventScreen({ session, spotter, onLeave }) {
                       <div className="text-gray-400 text-xs uppercase tracking-wide font-semibold mb-2">Your entries</div>
                       <div className="flex flex-wrap gap-2">
                         {myActivePledges.map(p => (
-                          <span key={p.id} className="inline-flex items-center bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 font-mono font-bold text-white text-sm gap-1.5">
+                          <span key={p.id} className={`inline-flex items-center border rounded-lg px-3 py-1.5 font-mono font-bold text-sm gap-1.5 transition-colors ${
+                            confirmRemove === p.id ? 'bg-red-900/40 border-red-500 text-red-300' : 'bg-gray-800 border-gray-700 text-white'
+                          }`}>
                             {p.paddle}
-                            <button onClick={() => actions.removePledge(p.id)} className="text-gray-600 hover:text-red-400 transition-colors leading-none text-base">×</button>
+                            <button onClick={() => handleRemovePledge(p.id)} className={`leading-none text-base transition-colors ${confirmRemove === p.id ? 'text-red-400' : 'text-gray-600 hover:text-red-400'}`}>×</button>
                           </span>
                         ))}
                       </div>
@@ -393,8 +412,8 @@ export default function EventScreen({ session, spotter, onLeave }) {
               All Pledges ({pledges.length})
             </div>
             {pledges.length > 0 && (
-              <button onClick={() => actions.removePledge(pledges[0]?.id)} className="text-xs text-gray-500 hover:text-yellow-400 transition-colors">
-                Undo last
+              <button onClick={() => handleRemovePledge(pledges[0]?.id)} className={`text-xs transition-colors ${confirmRemove === pledges[0]?.id ? 'text-red-400' : 'text-gray-500 hover:text-yellow-400'}`}>
+                {confirmRemove === pledges[0]?.id ? 'Tap again to remove' : 'Undo last'}
               </button>
             )}
           </div>
@@ -409,7 +428,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
                       <span className="font-mono font-bold text-white w-10 shrink-0">{p.paddle}</span>
                       <span className="font-semibold w-14 shrink-0" style={A.accent}>{formatDollars(p.level_amount)}</span>
                       <span className="text-gray-500 text-xs truncate flex-1">{p.spotter_name}</span>
-                      <button onClick={() => actions.removePledge(p.id)} className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-base leading-none shrink-0">×</button>
+                      <button onClick={() => handleRemovePledge(p.id)} className={`transition-colors text-base leading-none shrink-0 ${confirmRemove === p.id ? 'text-red-400 opacity-100' : 'text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100'}`}>×</button>
                     </div>
                   ))}
                 </div>

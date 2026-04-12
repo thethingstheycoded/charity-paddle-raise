@@ -100,8 +100,16 @@ export function useEvent(eventId) {
       return { error }
     },
 
-    removePledge: (id) =>
-      supabase.from('pledges').delete().eq('id', id),
+    removePledge: async (id) => {
+      setPledges(prev => prev.filter(p => p.id !== id))
+      const { error } = await supabase.from('pledges').delete().eq('id', id)
+      if (error) {
+        console.error('removePledge failed:', error)
+        // Re-fetch to restore the pledge if delete failed
+        const { data } = await supabase.from('pledges').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+        if (data) setPledges(data)
+      }
+    },
 
     addLevel: (amount) =>
       supabase.from('levels').insert({ event_id: eventId, amount })
