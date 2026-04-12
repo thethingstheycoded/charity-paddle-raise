@@ -85,14 +85,20 @@ export function useEvent(eventId) {
 
   // ── Actions ───────────────────────────────────────────────────────────────────
   const actions = {
-    addPledge: ({ paddle, levelAmount, spotterId, spotterName }) =>
-      supabase.from('pledges').insert({
+    addPledge: async ({ paddle, levelAmount, spotterId, spotterName }) => {
+      const { data, error } = await supabase.from('pledges').insert({
         event_id:     eventId,
         paddle,
         level_amount: levelAmount,
         spotter_id:   spotterId,
         spotter_name: spotterName,
-      }),
+      }).select().single()
+      if (!error && data) {
+        // Optimistic update: add to local state immediately; real-time will deduplicate
+        setPledges(prev => prev.some(p => p.id === data.id) ? prev : [data, ...prev])
+      }
+      return { error }
+    },
 
     removePledge: (id) =>
       supabase.from('pledges').delete().eq('id', id),

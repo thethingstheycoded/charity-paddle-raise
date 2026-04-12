@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useEvent } from '../hooks/useEvent.js'
 import { useTheme } from '../hooks/useTheme.js'
 import ReconciliationView from '../components/ReconciliationView.jsx'
@@ -24,28 +24,13 @@ function formatDate(iso) {
     .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-// ── Themed element helpers ────────────────────────────────────────────────────
-// These use CSS custom properties set on the root div so every element
-// automatically reflects the logo's extracted colors. The var() fallbacks
-// ensure the app looks correct even with no logo uploaded.
-
 const A = {
-  /** Solid accent background */
-  bg:     { backgroundColor: 'var(--accent, #2563eb)' },
-  /** Accent background, darker */
-  bgDark: { backgroundColor: 'var(--accent-dark, #1d4ed8)' },
-  /** Faint accent tint */
-  faded:  { backgroundColor: 'var(--accent-faded, rgba(37,99,235,0.18))' },
-  /** Accent border color */
-  border: { borderColor: 'var(--accent, #2563eb)' },
-  /** Ring (active selection) */
-  ring:   { boxShadow: '0 0 0 2px var(--accent-light, #60a5fa)' },
-  /** Text on an accent background (auto white/dark) */
-  text:   { color: 'var(--on-accent, #ffffff)' },
-  /** Accent-coloured text */
-  accent: { color: 'var(--accent, #60a5fa)' },
-  /** Tab active indicator */
-  tabBorder: { borderBottomColor: 'var(--accent, #3b82f6)' },
+  bg:       { backgroundColor: 'var(--accent, #2563eb)' },
+  bgDark:   { backgroundColor: 'var(--accent-dark, #1d4ed8)' },
+  border:   { borderColor: 'var(--accent, #2563eb)' },
+  ring:     { boxShadow: '0 0 0 2px var(--accent-light, #60a5fa)' },
+  text:     { color: 'var(--on-accent, #ffffff)' },
+  accent:   { color: 'var(--accent, #60a5fa)' },
 }
 
 export default function EventScreen({ session, spotter, onLeave }) {
@@ -61,15 +46,29 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const [confirmClear, setConfirmClear]   = useState(false)
   const [confirmLeave, setConfirmLeave]   = useState(false)
   const [showReconcile, setShowReconcile] = useState(false)
-  const flashTimer = useRef(null)
+  const flashTimer    = useRef(null)
+  const carouselRef   = useRef(null)
+  const activeLvlRef  = useRef(null)
+
+  // Scroll the active level pill to center whenever it changes
+  useEffect(() => {
+    if (!activeLvlRef.current || !carouselRef.current) return
+    const container = carouselRef.current
+    const el = activeLvlRef.current
+    const offset = el.offsetLeft - container.clientWidth / 2 + el.offsetWidth / 2
+    container.scrollTo({ left: offset, behavior: 'smooth' })
+  }, [activeLevel])
 
   function triggerFlash(paddle, type) {
     clearTimeout(flashTimer.current)
     setFlash({ paddle, type })
-    flashTimer.current = setTimeout(() => setFlash(null), type === 'success' ? 800 : 1500)
+    flashTimer.current = setTimeout(
+      () => setFlash(null),
+      type === 'success' ? 800 : type === 'error' ? 3000 : 1500
+    )
   }
 
-  function submitPaddle(value) {
+  async function submitPaddle(value) {
     const raw = value ?? paddleInput
     const num = parseInt(raw, 10)
     if (!raw || isNaN(num) || num < 1 || num > 999) { setPaddleInput(''); return }
@@ -78,9 +77,14 @@ export default function EventScreen({ session, spotter, onLeave }) {
       p => p.level_amount === activeLevel && p.paddle === paddle && p.spotter_id === spotter.id
     )
     if (alreadyMine) { triggerFlash(paddle, 'duplicate'); setPaddleInput(''); return }
-    actions.addPledge({ paddle, levelAmount: activeLevel, spotterId: spotter.id, spotterName: spotter.name })
-    triggerFlash(paddle, 'success')
     setPaddleInput('')
+    const { error } = await actions.addPledge({ paddle, levelAmount: activeLevel, spotterId: spotter.id, spotterName: spotter.name })
+    if (error) {
+      console.error('addPledge failed:', error)
+      triggerFlash(paddle, 'error')
+    } else {
+      triggerFlash(paddle, 'success')
+    }
   }
 
   function handleKeypadPress(key) {
@@ -122,13 +126,23 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const myActivePledges     = activeLevelPledges.filter(p => p.spotter_id === spotter.id)
   const othersActivePledges = activeLevelPledges.filter(p => p.spotter_id !== spotter.id)
 
-  const uniquePairs     = new Map(pledges.map(p => [`${p.paddle}:${p.level_amount}`, p.level_amount]))
-  const uniqueCount     = uniquePairs.size
-  const totalRaised     = [...uniquePairs.values()].reduce((s, v) => s + v, 0)
+  const uniquePairs = new Map(pledges.map(p => [`${p.paddle}:${p.level_amount}`, p.level_amount]))
+  const uniqueCount = uniquePairs.size
+  const totalRaised = [...uniquePairs.values()].reduce((s, v) => s + v, 0)
 
   const paddleDisplay = flash?.paddle
     ? flash.paddle
     : paddleInput.padEnd(3, '_').split('').join(' ')
+
+  // Flash message text — always rendered to avoid layout shift; visibility toggled via opacity
+  const flashText =
+    flash?.type === 'success'   ? 'Pledge recorded!' :
+    flash?.type === 'duplicate' ? 'Already recorded by you!' :
+    flash?.type === 'error'     ? 'Failed to save — check console' : ''
+  const flashTextColor =
+    flash?.type === 'success'   ? 'text-green-400' :
+    flash?.type === 'duplicate' ? 'text-red-400' :
+    flash?.type === 'error'     ? 'text-orange-400' : ''
 
   const displayPledges = showAll ? pledges : pledges.slice(0, 20)
 
@@ -141,11 +155,10 @@ export default function EventScreen({ session, spotter, onLeave }) {
       className="min-h-screen bg-gray-950 text-white flex flex-col select-none"
       style={cssVars}
     >
-      {/* Hidden image for color extraction — crossOrigin required for canvas read */}
+      {/* Hidden image for color extraction */}
       {session.logoUrl && (
         <img
-          src={session.logoUrl}
-          alt=""
+          src={session.logoUrl} alt=""
           crossOrigin="anonymous"
           onLoad={e => onImageLoad(e.target)}
           className="hidden"
@@ -154,15 +167,9 @@ export default function EventScreen({ session, spotter, onLeave }) {
 
       {/* ── Header ── */}
       <header className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center gap-4 flex-wrap">
-        {/* Logo */}
         {session.logoUrl && (
-          <img
-            src={session.logoUrl}
-            alt="Event logo"
-            className="h-10 w-auto max-w-24 object-contain rounded shrink-0"
-          />
+          <img src={session.logoUrl} alt="Event logo" className="h-10 w-auto max-w-24 object-contain rounded shrink-0" />
         )}
-
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-white leading-tight truncate">{session.name}</h1>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -173,7 +180,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
             <span className="text-gray-400 text-xs">{spotter.name}</span>
           </div>
         </div>
-
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center">
             <div className="text-xl font-bold text-green-400">{formatFull(totalRaised)}</div>
@@ -187,29 +193,19 @@ export default function EventScreen({ session, spotter, onLeave }) {
             onClick={() => setShowReconcile(true)}
             style={{ ...A.bgDark, ...A.border }}
             className="px-3 py-1.5 text-white text-sm font-semibold rounded border transition-colors hover:brightness-110"
-          >
-            Reconcile
-          </button>
+          >Reconcile</button>
           <button
             onClick={handleClearPledges}
             className={`text-xs px-3 py-1.5 rounded border transition-colors ${
-              confirmClear
-                ? 'bg-red-600 border-red-500 text-white'
-                : 'border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500'
+              confirmClear ? 'bg-red-600 border-red-500 text-white' : 'border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500'
             }`}
-          >
-            {confirmClear ? 'Tap again to clear' : 'Clear pledges'}
-          </button>
+          >{confirmClear ? 'Tap again to clear' : 'Clear pledges'}</button>
           <button
             onClick={handleLeave}
             className={`text-xs px-3 py-1.5 rounded border transition-colors ${
-              confirmLeave
-                ? 'bg-orange-600 border-orange-500 text-white'
-                : 'border-gray-700 text-gray-600 hover:text-gray-300 hover:border-gray-500'
+              confirmLeave ? 'bg-orange-600 border-orange-500 text-white' : 'border-gray-700 text-gray-600 hover:text-gray-300 hover:border-gray-500'
             }`}
-          >
-            {confirmLeave ? 'Tap again to leave' : 'Leave'}
-          </button>
+          >{confirmLeave ? 'Tap again to leave' : 'Leave'}</button>
         </div>
       </header>
 
@@ -220,128 +216,112 @@ export default function EventScreen({ session, spotter, onLeave }) {
         <div className="bg-red-900/30 border-b border-red-800 px-4 py-2 text-center text-red-300 text-sm">{error}</div>
       )}
 
+      {/* ── Level carousel ── */}
+      <div className="bg-gray-900 border-b border-gray-700 shrink-0">
+        <div
+          ref={carouselRef}
+          className="flex gap-2 px-4 py-2 overflow-x-auto"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {levels.map(level => {
+            const uniquePaddles = new Set(pledges.filter(p => p.level_amount === level).map(p => p.paddle))
+            const isActive = activeLevel === level
+            return (
+              <button
+                key={level}
+                ref={isActive ? activeLvlRef : null}
+                onClick={() => { setActiveLevel(level); setPaddleInput('') }}
+                style={isActive ? { ...A.bg, ...A.ring } : {}}
+                className={`shrink-0 px-4 py-2 rounded-lg font-bold transition-all active:scale-95 text-center min-w-16 ${
+                  isActive ? 'text-white shadow-lg' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                }`}
+              >
+                <div className="text-base leading-tight">{formatDollars(level)}</div>
+                <div
+                  className="text-xs font-normal leading-tight"
+                  style={
+                    uniquePaddles.size > 0
+                      ? isActive ? { color: 'var(--on-accent, white)', opacity: 0.8 } : { color: '#9ca3af' }
+                      : { opacity: 0 }
+                  }
+                >
+                  {uniquePaddles.size || '·'}
+                </div>
+              </button>
+            )
+          })}
+
+          {/* Add level */}
+          {addingLevel ? (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <input
+                type="text" inputMode="numeric" placeholder="e.g. 750"
+                value={newLevelInput}
+                onChange={e => setNewLevelInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleAddLevel(); if (e.key === 'Escape') setAddingLevel(false) }}
+                className="w-24 bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-400"
+                autoFocus
+              />
+              <button onClick={handleAddLevel} style={A.bg} className="text-white text-xs px-3 py-2 rounded font-semibold hover:brightness-110 shrink-0">Add</button>
+              <button onClick={() => setAddingLevel(false)} className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-2 rounded shrink-0">✕</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingLevel(true)}
+              className="shrink-0 bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            >+ Level</button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── Left: Donation levels ── */}
-        <aside className="w-40 sm:w-48 bg-gray-900 border-r border-gray-700 flex flex-col overflow-y-auto shrink-0">
-          <div className="p-3 border-b border-gray-700">
-            <div className="text-gray-400 text-xs uppercase tracking-wide font-semibold">Levels</div>
-          </div>
-          <div className="flex flex-col gap-1.5 p-2 flex-1">
-            {levels.map(level => {
-              const uniquePaddles = new Set(pledges.filter(p => p.level_amount === level).map(p => p.paddle))
-              const isActive = activeLevel === level
-              return (
-                <button
-                  key={level}
-                  onClick={() => { setActiveLevel(level); setPaddleInput('') }}
-                  style={isActive ? { ...A.bg, ...A.ring } : {}}
-                  className={`w-full text-left px-3 py-3 rounded-lg font-bold transition-all active:scale-95 ${
-                    isActive ? 'text-white shadow-lg' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
-                  }`}
-                >
-                  <div className="text-lg">{formatDollars(level)}</div>
-                  {uniquePaddles.size > 0 && (
-                    <div
-                      className="text-xs font-normal mt-0.5"
-                      style={isActive ? { color: 'var(--on-accent, white)', opacity: 0.8 } : { color: '#9ca3af' }}
-                    >
-                      {uniquePaddles.size} pledge{uniquePaddles.size !== 1 ? 's' : ''}
-                    </div>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="p-2 border-t border-gray-700">
-            {addingLevel ? (
-              <div className="flex flex-col gap-1.5">
-                <input
-                  type="text" inputMode="numeric" placeholder="e.g. 750"
-                  value={newLevelInput}
-                  onChange={e => setNewLevelInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddLevel(); if (e.key === 'Escape') setAddingLevel(false) }}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-400"
-                  autoFocus
-                />
-                <div className="flex gap-1">
-                  <button
-                    onClick={handleAddLevel}
-                    style={A.bg}
-                    className="flex-1 text-white text-xs py-1.5 rounded font-semibold hover:brightness-110"
-                  >Add</button>
-                  <button onClick={() => setAddingLevel(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-1.5 rounded">Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setAddingLevel(true)}
-                className="w-full bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 text-gray-400 hover:text-white text-sm py-2 rounded-lg transition-colors"
-              >
-                + Add Level
-              </button>
-            )}
-          </div>
-        </aside>
-
         {/* ── Center: Keypad ── */}
-        <main className="flex-1 flex flex-col items-center justify-start p-4 gap-4 overflow-y-auto">
+        <main className="flex-1 flex flex-col items-center justify-start p-4 gap-3 overflow-y-auto">
           {activeLevel === null ? (
             <div className="flex-1 flex items-center justify-center">
               {session.logoUrl ? (
                 <div className="text-center">
-                  <img
-                    src={session.logoUrl}
-                    alt="Event logo"
-                    className="h-24 w-auto max-w-48 object-contain mx-auto mb-6 opacity-40"
-                  />
+                  <img src={session.logoUrl} alt="Event logo" className="h-24 w-auto max-w-48 object-contain mx-auto mb-6 opacity-40" />
                   <div className="text-xl font-semibold text-gray-400">Select a donation level</div>
-                  <div className="text-sm mt-2 text-gray-600">Tap a level on the left to start recording pledges</div>
+                  <div className="text-sm mt-2 text-gray-600">Tap a level above to start recording pledges</div>
                 </div>
               ) : (
                 <div className="text-center text-gray-500">
-                  <div className="text-5xl mb-3">←</div>
+                  <div className="text-5xl mb-3">↑</div>
                   <div className="text-xl font-semibold text-gray-400">Select a donation level</div>
-                  <div className="text-sm mt-2">Tap a level on the left to start recording pledges</div>
+                  <div className="text-sm mt-2">Tap a level above to start recording pledges</div>
                 </div>
               )}
             </div>
           ) : (
             <>
-              {/* Active level badge */}
-              <div className="w-full max-w-xs">
-                <div
-                  style={A.bg}
-                  className="rounded-2xl px-6 py-4 text-center shadow-xl"
-                >
-                  <div className="text-sm uppercase tracking-wide font-semibold mb-1" style={{ color: 'var(--on-accent, white)', opacity: 0.75 }}>
-                    Active Level
-                  </div>
-                  <div className="text-4xl font-bold" style={A.text}>{formatFull(activeLevel)}</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--on-accent, white)', opacity: 0.7 }}>
-                    {new Set(activeLevelPledges.map(p => p.paddle)).size} unique paddle{new Set(activeLevelPledges.map(p => p.paddle)).size !== 1 ? 's' : ''} recorded
-                  </div>
-                </div>
-              </div>
-
-              {/* Paddle display */}
-              <div className={`w-full max-w-xs rounded-2xl border-4 transition-all duration-100 ${
+              {/* Paddle display — fixed height, no layout shift */}
+              <div className={`w-full max-w-xs rounded-2xl border-4 transition-colors duration-100 ${
                 flash?.type === 'success'   ? 'border-green-400 bg-green-900/30' :
                 flash?.type === 'duplicate' ? 'border-red-500 bg-red-900/30'    :
+                flash?.type === 'error'     ? 'border-orange-500 bg-orange-900/30' :
                 'border-gray-700 bg-gray-900'
               }`}>
-                <div className="px-6 py-5 text-center">
-                  <div className="text-gray-400 text-xs uppercase tracking-wide mb-2 font-semibold">Paddle #</div>
+                <div className="px-6 pt-4 pb-3 text-center">
+                  <div className="text-gray-400 text-xs uppercase tracking-wide mb-1 font-semibold">
+                    {formatFull(activeLevel)} · Paddle #
+                  </div>
                   <div className={`text-6xl font-mono font-bold tracking-widest ${
-                    flash?.type === 'success'   ? 'text-green-400' :
-                    flash?.type === 'duplicate' ? 'text-red-400'   :
-                    paddleInput.length > 0      ? 'text-white'     : 'text-gray-700'
+                    flash?.type === 'success'   ? 'text-green-400'  :
+                    flash?.type === 'duplicate' ? 'text-red-400'    :
+                    flash?.type === 'error'     ? 'text-orange-400' :
+                    paddleInput.length > 0      ? 'text-white'      : 'text-gray-700'
                   }`}>
                     {paddleDisplay}
                   </div>
-                  {flash?.type === 'duplicate' && <div className="text-red-400 text-sm mt-2 font-semibold">Already recorded by you!</div>}
-                  {flash?.type === 'success'   && <div className="text-green-400 text-sm mt-2 font-semibold">Pledge recorded!</div>}
+                  {/* Fixed-height message row — always present, opacity toggles */}
+                  <div className="h-5 mt-1 flex items-center justify-center">
+                    <span className={`text-sm font-semibold transition-opacity duration-150 ${flashTextColor} ${flash ? 'opacity-100' : 'opacity-0'}`}>
+                      {flashText || '\u00A0'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -373,7 +353,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
 
               {/* Pledges at this level */}
               {activeLevelPledges.length > 0 && (
-                <div className="w-full max-w-xs space-y-3">
+                <div className="w-full max-w-xs space-y-3 pb-4">
                   {myActivePledges.length > 0 && (
                     <div>
                       <div className="text-gray-400 text-xs uppercase tracking-wide font-semibold mb-2">Your entries</div>
@@ -406,7 +386,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
           )}
         </main>
 
-        {/* ── Right: Pledge log ── */}
+        {/* ── Right: Pledge log (desktop only) ── */}
         <aside className="hidden lg:flex w-64 xl:w-72 bg-gray-900 border-l border-gray-700 flex-col shrink-0">
           <div className="p-3 border-b border-gray-700 flex items-center justify-between">
             <div className="text-gray-400 text-xs uppercase tracking-wide font-semibold">
@@ -418,7 +398,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
               </button>
             )}
           </div>
-
           <div className="flex-1 overflow-y-auto p-2">
             {pledges.length === 0 ? (
               <div className="text-gray-600 text-sm text-center mt-8">No pledges yet</div>
@@ -442,7 +421,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
               </>
             )}
           </div>
-
           {pledges.length > 0 && (
             <div className="border-t border-gray-700 p-3 space-y-1">
               <div className="text-gray-500 text-xs uppercase tracking-wide font-semibold mb-2">Breakdown</div>
