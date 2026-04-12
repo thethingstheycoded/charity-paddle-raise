@@ -149,10 +149,14 @@ function SwipeableRow({ onSwipeLeft, onSwipeRight, children }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
-  const [tab, setTab]         = useState('all')
-  const [copied, setCopied]   = useState(false)
+export default function ReconciliationView({ pledges, cssVars = {}, onClose, onClearPledges }) {
+  const [tab, setTab]           = useState('all')
+  const [copied, setCopied]     = useState(false)
   const [statuses, setStatuses] = useState({}) // { 'paddle:level': 'confirmed' | 'rejected' }
+  const [showClear, setShowClear]     = useState(false)
+  const [clearPassword, setClearPassword] = useState('')
+  const [clearError, setClearError]   = useState('')
+  const [clearing, setClearing]       = useState(false)
 
   const groups = useMemo(() => reconcile(pledges), [pledges])
 
@@ -179,6 +183,21 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
     tab === 'rejected'  ? rejectedGroups  :
     groups // 'all' shows everything including rejected
 
+  async function handleClear() {
+    if (!clearPassword) { setClearError('Enter the event password'); return }
+    setClearing(true)
+    setClearError('')
+    const result = await onClearPledges(clearPassword)
+    setClearing(false)
+    if (result?.error) {
+      setClearError(result.error)
+    } else {
+      setShowClear(false)
+      setClearPassword('')
+      onClose()
+    }
+  }
+
   function copyToClipboard() {
     navigator.clipboard.writeText(buildSummaryText(groups, statuses)).then(() => {
       setCopied(true)
@@ -187,7 +206,7 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col" style={cssVars}>
+    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col relative" style={cssVars}>
 
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
@@ -222,6 +241,12 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
             className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded border border-gray-600 transition-colors"
           >
             {copied ? 'Copied!' : 'Copy Summary'}
+          </button>
+          <button
+            onClick={() => { setShowClear(true); setClearPassword(''); setClearError('') }}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-red-900/60 text-red-400 hover:text-red-300 text-xs rounded border border-red-900/50 hover:border-red-700 transition-colors"
+          >
+            Clear pledges
           </button>
           <button
             onClick={onClose}
@@ -334,6 +359,41 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose }) {
           </div>
         )}
       </div>
+
+      {/* ── Password confirmation modal ── */}
+      {showClear && (
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-10 p-6">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-white font-bold text-lg mb-1">Clear all pledges?</h3>
+            <p className="text-gray-400 text-sm mb-5">This cannot be undone. Enter the event password to confirm.</p>
+            <input
+              type="password"
+              placeholder="Event password"
+              value={clearPassword}
+              onChange={e => { setClearPassword(e.target.value); setClearError('') }}
+              onKeyDown={e => { if (e.key === 'Enter') handleClear(); if (e.key === 'Escape') setShowClear(false) }}
+              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-red-500 mb-2"
+              autoFocus
+            />
+            {clearError && <p className="text-red-400 text-sm mb-3">{clearError}</p>}
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleClear}
+                disabled={clearing}
+                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                {clearing ? 'Verifying…' : 'Clear all pledges'}
+              </button>
+              <button
+                onClick={() => setShowClear(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="bg-gray-900 border-t border-gray-700 px-4 py-3 flex items-center justify-between">

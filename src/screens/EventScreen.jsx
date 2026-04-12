@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useEvent } from '../hooks/useEvent.js'
 import { useTheme } from '../hooks/useTheme.js'
+import { supabase } from '../lib/supabase.js'
 import ReconciliationView from '../components/ReconciliationView.jsx'
 
 function formatDollars(amount) {
@@ -43,7 +44,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const [newLevelInput, setNewLevelInput] = useState('')
   const [flash, setFlash]                 = useState(null)
   const [showAll, setShowAll]             = useState(false)
-  const [confirmClear, setConfirmClear]   = useState(false)
   const [confirmLeave, setConfirmLeave]   = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(null)
   const [showReconcile, setShowReconcile] = useState(false)
@@ -52,14 +52,14 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const carouselRef     = useRef(null)
   const activeLvlRef    = useRef(null)
 
-  // Scroll the active level pill to center whenever it changes
+  // Scroll the active level pill to center whenever it changes or levels list updates
   useEffect(() => {
     if (!activeLvlRef.current || !carouselRef.current) return
     const container = carouselRef.current
     const el = activeLvlRef.current
     const offset = el.offsetLeft - container.clientWidth / 2 + el.offsetWidth / 2
     container.scrollTo({ left: offset, behavior: 'smooth' })
-  }, [activeLevel])
+  }, [activeLevel, levels])
 
   function triggerFlash(paddle, type) {
     clearTimeout(flashTimer.current)
@@ -126,9 +126,13 @@ export default function EventScreen({ session, spotter, onLeave }) {
     }
   }
 
-  function handleClearPledges() {
-    if (!confirmClear) { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 3000); return }
-    actions.clearPledges(); setActiveLevel(null); setPaddleInput(''); setConfirmClear(false)
+  async function handleClearPledges(password) {
+    const { data, error } = await supabase.rpc('join_event', { p_code: session.code, p_password: password })
+    if (error || !data) return { error: 'Incorrect password' }
+    await actions.clearPledges()
+    setActiveLevel(null)
+    setPaddleInput('')
+    return { success: true }
   }
 
   function handleLeave() {
@@ -161,7 +165,7 @@ export default function EventScreen({ session, spotter, onLeave }) {
   const displayPledges = showAll ? pledges : pledges.slice(0, 20)
 
   if (showReconcile) {
-    return <ReconciliationView pledges={pledges} cssVars={cssVars} onClose={() => setShowReconcile(false)} />
+    return <ReconciliationView pledges={pledges} cssVars={cssVars} onClose={() => setShowReconcile(false)} onClearPledges={handleClearPledges} />
   }
 
   return (
@@ -208,12 +212,6 @@ export default function EventScreen({ session, spotter, onLeave }) {
             style={{ ...A.bgDark, ...A.border }}
             className="px-3 py-1.5 text-white text-sm font-semibold rounded border transition-colors hover:brightness-110"
           >Reconcile</button>
-          <button
-            onClick={handleClearPledges}
-            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
-              confirmClear ? 'bg-red-600 border-red-500 text-white' : 'border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500'
-            }`}
-          >{confirmClear ? 'Tap again to clear' : 'Clear pledges'}</button>
           <button
             onClick={handleLeave}
             className={`text-xs px-3 py-1.5 rounded border transition-colors ${

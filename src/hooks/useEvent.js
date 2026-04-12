@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase.js'
 
 /**
@@ -11,6 +11,7 @@ export function useEvent(eventId) {
   const [pledges, setPledges] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const originalLevels = useRef([])
 
   // ── Initial load ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -36,7 +37,9 @@ export function useEvent(eventId) {
       if (levelsRes.error) { setError(levelsRes.error.message); return }
       if (pledgesRes.error) { setError(pledgesRes.error.message); return }
 
-      setLevels(levelsRes.data.map(l => l.amount))
+      const initialAmounts = levelsRes.data.map(l => l.amount)
+      originalLevels.current = initialAmounts
+      setLevels(initialAmounts)
       setPledges(pledgesRes.data)
       setLoading(false)
     }
@@ -111,13 +114,22 @@ export function useEvent(eventId) {
       }
     },
 
-    addLevel: (amount) =>
-      supabase.from('levels').insert({ event_id: eventId, amount })
-        .then(() => {}),   // ignore unique-constraint errors silently
+    addLevel: (amount) => {
+      setLevels(prev => prev.includes(amount) ? prev : [...prev, amount].sort((a, b) => b - a))
+      supabase.from('levels').insert({ event_id: eventId, amount })  // real-time will deduplicate
+    },
 
-    clearPledges: () =>
-      supabase.from('pledges').delete().eq('event_id', eventId)
-        .then(() => setPledges([])),
+    clearPledges: async () => {
+      // Delete all pledges
+      await supabase.from('pledges').delete().eq('event_id', eventId)
+      setPledges([])
+      // Remove any levels that were added after the event started
+      const added = levels.filter(l => !originalLevels.current.includes(l))
+      if (added.length > 0) {
+        await supabase.from('levels').delete().eq('event_id', eventId).in('amount', added)
+      }
+      setLevels([...originalLevels.current])
+    },
   }
 
   return { levels, pledges, loading, error, actions }
