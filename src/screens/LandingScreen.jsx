@@ -242,7 +242,16 @@ export default function LandingScreen({ onJoined }) {
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md shadow-lg overflow-hidden">
         <div className="px-6 pt-6 pb-4 text-center border-b border-gray-100">
-          <div className="text-4xl mb-3">🏏</div>
+          <div className="flex justify-center mb-3">
+            <svg width="52" height="64" viewBox="0 0 52 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Paddle head */}
+              <circle cx="26" cy="22" r="20" fill="#2563eb" />
+              {/* Paddle number */}
+              <text x="26" y="29" textAnchor="middle" fill="white" fontSize="18" fontWeight="bold" fontFamily="monospace">42</text>
+              {/* Handle */}
+              <rect x="22" y="40" width="8" height="24" rx="4" fill="#1d4ed8" />
+            </svg>
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">Paddle Raise Tracker</h1>
           <p className="text-gray-500 text-sm mt-1">Multi-spotter pledge tracking for charity events</p>
         </div>
