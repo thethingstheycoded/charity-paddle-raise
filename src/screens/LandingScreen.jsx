@@ -21,14 +21,12 @@ async function uploadLogo(file) {
   return supabase.storage.from('logos').getPublicUrl(path).data.publicUrl
 }
 
-// ── Shared field component ────────────────────────────────────────────────────
-
 function Field({ label, hint, children }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-gray-400 text-sm font-medium">
+      <label className="text-gray-600 text-sm font-medium">
         {label}
-        {hint && <span className="text-gray-600 font-normal ml-1">{hint}</span>}
+        {hint && <span className="text-gray-400 font-normal ml-1">{hint}</span>}
       </label>
       {children}
     </div>
@@ -39,12 +37,10 @@ function Input(props) {
   return (
     <input
       {...props}
-      className="bg-gray-800 border border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-base w-full"
+      className="bg-white border border-gray-300 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 text-base w-full"
     />
   )
 }
-
-// ── Logo upload field ─────────────────────────────────────────────────────────
 
 function LogoUpload({ file, onFile }) {
   const inputRef = useRef(null)
@@ -66,42 +62,34 @@ function LogoUpload({ file, onFile }) {
       onClick={() => inputRef.current?.click()}
       onDragOver={e => e.preventDefault()}
       onDrop={handleDrop}
-      className="cursor-pointer rounded-xl border-2 border-dashed border-gray-600 hover:border-gray-400 transition-colors overflow-hidden"
+      className="cursor-pointer rounded-xl border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors overflow-hidden"
     >
       {previewUrl ? (
-        <div className="flex items-center gap-3 px-4 py-3 bg-gray-800">
+        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50">
           <img src={previewUrl} alt="Logo preview" className="h-12 w-12 object-contain rounded" />
           <div className="flex-1 min-w-0">
-            <div className="text-white text-sm font-medium truncate">{file.name}</div>
-            <div className="text-gray-400 text-xs">{(file.size / 1024).toFixed(0)} KB · Click to change</div>
+            <div className="text-gray-900 text-sm font-medium truncate">{file.name}</div>
+            <div className="text-gray-500 text-xs">{(file.size / 1024).toFixed(0)} KB · Click to change</div>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-6 text-gray-500">
+        <div className="flex flex-col items-center justify-center py-6 text-gray-400">
           <div className="text-2xl mb-1">🖼️</div>
           <div className="text-sm">Click or drag to upload logo</div>
-          <div className="text-xs mt-1 text-gray-600">PNG, JPG, SVG, WebP · max 2 MB</div>
+          <div className="text-xs mt-1 text-gray-300">PNG, JPG, SVG, WebP · max 2 MB</div>
         </div>
       )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleChange}
-      />
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleChange} />
     </div>
   )
 }
-
-// ── Create Event tab ──────────────────────────────────────────────────────────
 
 function CreateEventForm({ onJoined }) {
   const [form, setForm] = useState({
     name: '', code: '', password: '', confirmPassword: '', eventDate: '', spotterName: '',
   })
   const [logoFile, setLogoFile] = useState(null)
-  const [error, setError]   = useState('')
+  const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
 
   function set(field) {
@@ -118,7 +106,6 @@ function CreateEventForm({ onJoined }) {
   async function submit(e) {
     e.preventDefault()
     setError('')
-
     if (!form.name.trim())                     return setError('Event name is required.')
     if (form.code.length < 3)                  return setError('Event code must be at least 3 characters.')
     if (!/^[A-Za-z0-9]+$/.test(form.code))    return setError('Event code can only contain letters and numbers.')
@@ -131,7 +118,6 @@ function CreateEventForm({ onJoined }) {
     setLoading(true)
     try {
       const logoUrl = logoFile ? await uploadLogo(logoFile) : null
-
       const { data, error: rpcError } = await supabase.rpc('create_event', {
         p_name:       form.name.trim(),
         p_code:       form.code.toUpperCase(),
@@ -140,9 +126,7 @@ function CreateEventForm({ onJoined }) {
         p_levels:     DEFAULT_LEVELS,
         p_logo_url:   logoUrl,
       })
-
       if (rpcError) { setError(rpcError.message); return }
-
       const spotter = { id: randomId(), name: form.spotterName.trim() }
       onJoined(
         { eventId: data.id, name: data.name, code: data.code, eventDate: data.event_date, logoUrl: data.logo_url },
@@ -158,24 +142,16 @@ function CreateEventForm({ onJoined }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <Field label="Event name">
-        <Input
-          type="text" placeholder="e.g. Hearts for Kids – 2024 Gala"
-          value={form.name} onChange={set('name')} maxLength={80} autoFocus
-        />
+        <Input type="text" placeholder="e.g. Hearts for Kids – 2024 Gala" value={form.name} onChange={set('name')} maxLength={80} autoFocus />
       </Field>
-
       <div className="grid grid-cols-2 gap-3">
         <Field label="Event date">
           <Input type="date" value={form.eventDate} onChange={set('eventDate')} />
         </Field>
         <Field label="Join code">
-          <Input
-            type="text" placeholder="e.g. HEARTS24"
-            value={form.code} onChange={set('code')} maxLength={20}
-          />
+          <Input type="text" placeholder="e.g. HEARTS24" value={form.code} onChange={set('code')} maxLength={20} />
         </Field>
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         <Field label="Password">
           <Input type="password" placeholder="Shared with spotters" value={form.password} onChange={set('password')} />
@@ -184,30 +160,24 @@ function CreateEventForm({ onJoined }) {
           <Input type="password" placeholder="" value={form.confirmPassword} onChange={set('confirmPassword')} />
         </Field>
       </div>
-
       <Field label="Your name">
         <Input type="text" placeholder="e.g. Sarah" value={form.spotterName} onChange={set('spotterName')} maxLength={30} />
       </Field>
-
       <Field label="Charity logo" hint="(optional)">
         <LogoUpload file={logoFile} onFile={setLogoFile} />
       </Field>
-
       {error && (
-        <div className="bg-red-900/40 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-sm">{error}</div>
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-600 text-sm">{error}</div>
       )}
-
       <button
         type="submit" disabled={loading}
-        className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-lg py-3 rounded-xl transition-colors mt-1"
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-lg py-3 rounded-xl transition-colors mt-1"
       >
         {loading ? (logoFile ? 'Uploading logo…' : 'Creating…') : 'Create Event'}
       </button>
     </form>
   )
 }
-
-// ── Join Event tab ────────────────────────────────────────────────────────────
 
 function JoinEventForm({ onJoined }) {
   const [form, setForm]     = useState({ code: '', password: '', spotterName: '' })
@@ -231,7 +201,6 @@ function JoinEventForm({ onJoined }) {
       p_password: form.password,
     })
     setLoading(false)
-
     if (rpcError) return setError(rpcError.message)
     if (!data)    return setError('Invalid event code or password.')
 
@@ -245,11 +214,7 @@ function JoinEventForm({ onJoined }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <Field label="Event code">
-        <Input
-          type="text" placeholder="e.g. HEARTS24"
-          value={form.code} onChange={set('code')} maxLength={20}
-          autoCapitalize="characters" autoFocus
-        />
+        <Input type="text" placeholder="e.g. HEARTS24" value={form.code} onChange={set('code')} maxLength={20} autoCapitalize="characters" autoFocus />
       </Field>
       <Field label="Password">
         <Input type="password" placeholder="Shared password for this event" value={form.password} onChange={set('password')} />
@@ -257,14 +222,12 @@ function JoinEventForm({ onJoined }) {
       <Field label="Your name">
         <Input type="text" placeholder="e.g. Sarah" value={form.spotterName} onChange={set('spotterName')} maxLength={30} />
       </Field>
-
       {error && (
-        <div className="bg-red-900/40 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-sm">{error}</div>
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-600 text-sm">{error}</div>
       )}
-
       <button
         type="submit" disabled={loading}
-        className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-lg py-3 rounded-xl transition-colors mt-1"
+        className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-lg py-3 rounded-xl transition-colors mt-1"
       >
         {loading ? 'Joining…' : 'Join Event'}
       </button>
@@ -272,26 +235,24 @@ function JoinEventForm({ onJoined }) {
   )
 }
 
-// ── Landing screen ────────────────────────────────────────────────────────────
-
 export default function LandingScreen({ onJoined }) {
   const [tab, setTab] = useState('join')
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-        <div className="px-6 pt-6 pb-4 text-center border-b border-gray-700">
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md shadow-lg overflow-hidden">
+        <div className="px-6 pt-6 pb-4 text-center border-b border-gray-100">
           <div className="text-4xl mb-3">🏏</div>
-          <h1 className="text-2xl font-bold text-white">Paddle Raise Tracker</h1>
-          <p className="text-gray-400 text-sm mt-1">Multi-spotter pledge tracking for charity events</p>
+          <h1 className="text-2xl font-bold text-gray-900">Paddle Raise Tracker</h1>
+          <p className="text-gray-500 text-sm mt-1">Multi-spotter pledge tracking for charity events</p>
         </div>
 
-        <div className="flex border-b border-gray-700">
+        <div className="flex border-b border-gray-100">
           {[{ key: 'join', label: 'Join Event' }, { key: 'create', label: 'Create Event' }].map(t => (
             <button
               key={t.key} onClick={() => setTab(t.key)}
               className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors ${
-                tab === t.key ? 'border-blue-500 text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
+                tab === t.key ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
               {t.label}

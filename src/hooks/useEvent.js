@@ -119,6 +119,13 @@ export function useEvent(eventId) {
       supabase.from('levels').insert({ event_id: eventId, amount })  // real-time will deduplicate
     },
 
+    deleteEvent: async (password, code) => {
+      const { data, error } = await supabase.rpc('delete_event', { p_code: code, p_password: password })
+      if (error) return { error: error.message }
+      if (!data) return { error: 'Incorrect password' }
+      return { success: true }
+    },
+
     clearPledges: async () => {
       // Delete all pledges
       await supabase.from('pledges').delete().eq('event_id', eventId)

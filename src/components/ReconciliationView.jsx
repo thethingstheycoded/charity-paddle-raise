@@ -77,10 +77,10 @@ function buildSummaryText(groups, statuses) {
 const THRESHOLD = 72
 
 function SwipeableRow({ onSwipeLeft, onSwipeRight, children }) {
-  const [dx, setDx]       = useState(0)
+  const [dx, setDx]           = useState(0)
   const [swiping, setSwiping] = useState(false)
   const start     = useRef({ x: 0, y: 0 })
-  const direction = useRef(null) // 'h' | 'v' | null
+  const direction = useRef(null)
 
   function onTouchStart(e) {
     start.current  = { x: e.touches[0].clientX, y: e.touches[0].clientY }
@@ -115,28 +115,20 @@ function SwipeableRow({ onSwipeLeft, onSwipeRight, children }) {
 
   return (
     <div className="relative overflow-hidden rounded-xl">
-      {/* Confirm bg — revealed on swipe left */}
       <div
         className="absolute inset-0 flex items-center px-5"
         style={{ backgroundColor: `rgba(22,163,74,${showConfirm ? progress : 0})`, opacity: showConfirm ? 1 : 0 }}
       >
         <span className="text-white font-bold text-sm select-none">✓ Confirm</span>
       </div>
-
-      {/* Reject bg — revealed on swipe right */}
       <div
         className="absolute inset-0 flex items-center justify-end px-5"
         style={{ backgroundColor: `rgba(220,38,38,${showReject ? progress : 0})`, opacity: showReject ? 1 : 0 }}
       >
         <span className="text-white font-bold text-sm select-none">✕ Reject</span>
       </div>
-
-      {/* Row content */}
       <div
-        style={{
-          transform: `translateX(${dx}px)`,
-          transition: swiping ? 'none' : 'transform 0.25s ease',
-        }}
+        style={{ transform: `translateX(${dx}px)`, transition: swiping ? 'none' : 'transform 0.25s ease' }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -149,14 +141,19 @@ function SwipeableRow({ onSwipeLeft, onSwipeRight, children }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ReconciliationView({ pledges, cssVars = {}, onClose, onClearPledges }) {
+export default function ReconciliationView({ pledges, cssVars = {}, onClose, onClearPledges, onDeleteEvent }) {
   const [tab, setTab]           = useState('all')
   const [copied, setCopied]     = useState(false)
-  const [statuses, setStatuses] = useState({}) // { 'paddle:level': 'confirmed' | 'rejected' }
-  const [showClear, setShowClear]     = useState(false)
+  const [statuses, setStatuses] = useState({})
+  const [showClear, setShowClear]         = useState(false)
   const [clearPassword, setClearPassword] = useState('')
-  const [clearError, setClearError]   = useState('')
-  const [clearing, setClearing]       = useState(false)
+  const [clearError, setClearError]       = useState('')
+  const [clearing, setClearing]           = useState(false)
+  const [showDelete, setShowDelete]       = useState(false)
+  const [deletePass1, setDeletePass1]     = useState('')
+  const [deletePass2, setDeletePass2]     = useState('')
+  const [deleteError, setDeleteError]     = useState('')
+  const [deleting, setDeleting]           = useState(false)
 
   const groups = useMemo(() => reconcile(pledges), [pledges])
 
@@ -164,8 +161,8 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
     setStatuses(prev => ({ ...prev, [key]: prev[key] === status ? null : status }))
   }
 
-  const activeGroups   = groups.filter(g => statuses[`${g.paddle}:${g.level}`] !== 'rejected')
-  const rejectedGroups = groups.filter(g => statuses[`${g.paddle}:${g.level}`] === 'rejected')
+  const activeGroups    = groups.filter(g => statuses[`${g.paddle}:${g.level}`] !== 'rejected')
+  const rejectedGroups  = groups.filter(g => statuses[`${g.paddle}:${g.level}`] === 'rejected')
   const confirmedGroups = activeGroups.filter(g =>
     g.entries.length > 1 || statuses[`${g.paddle}:${g.level}`] === 'confirmed'
   )
@@ -181,7 +178,7 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
     tab === 'confirmed' ? confirmedGroups :
     tab === 'solo'      ? soloGroups      :
     tab === 'rejected'  ? rejectedGroups  :
-    groups // 'all' shows everything including rejected
+    groups
 
   async function handleClear() {
     if (!clearPassword) { setClearError('Enter the event password'); return }
@@ -198,6 +195,16 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
     }
   }
 
+  async function handleDelete() {
+    if (!deletePass1 || !deletePass2) { setDeleteError('Enter the password in both fields'); return }
+    if (deletePass1 !== deletePass2)  { setDeleteError('Passwords do not match'); return }
+    setDeleting(true)
+    setDeleteError('')
+    const result = await onDeleteEvent(deletePass1)
+    setDeleting(false)
+    if (result?.error) setDeleteError(result.error)
+  }
+
   function copyToClipboard() {
     navigator.clipboard.writeText(buildSummaryText(groups, statuses)).then(() => {
       setCopied(true)
@@ -206,12 +213,12 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col relative" style={cssVars}>
+    <div className="fixed inset-0 bg-gray-50 z-50 flex flex-col relative" style={cssVars}>
 
       {/* Header */}
-      <div className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between gap-4 flex-wrap shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-white">Reconciliation</h2>
+          <h2 className="text-lg font-bold text-gray-900">Reconciliation</h2>
           <p className="text-gray-400 text-xs mt-0.5">
             {allSpotters.length} spotter{allSpotters.length !== 1 ? 's' : ''}:&nbsp;
             {allSpotters.map(s => s.name).join(', ')}
@@ -220,16 +227,16 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
 
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-400">{formatFull(total)}</div>
+            <div className="text-2xl font-bold text-green-600">{formatFull(total)}</div>
             <div className="text-gray-400 text-xs uppercase tracking-wide">Total (excl. rejected)</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-400">{activeGroups.length}</div>
+            <div className="text-2xl font-bold text-blue-500">{activeGroups.length}</div>
             <div className="text-gray-400 text-xs uppercase tracking-wide">Active Pledges</div>
           </div>
           {rejectedGroups.length > 0 && (
             <div className="text-center">
-              <div className="text-2xl font-bold text-red-400">{rejectedGroups.length}</div>
+              <div className="text-2xl font-bold text-red-500">{rejectedGroups.length}</div>
               <div className="text-gray-400 text-xs uppercase tracking-wide">Rejected</div>
             </div>
           )}
@@ -238,19 +245,19 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
         <div className="flex items-center gap-2">
           <button
             onClick={copyToClipboard}
-            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded border border-gray-600 transition-colors"
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded border border-gray-200 transition-colors"
           >
             {copied ? 'Copied!' : 'Copy Summary'}
           </button>
           <button
             onClick={() => { setShowClear(true); setClearPassword(''); setClearError('') }}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-red-900/60 text-red-400 hover:text-red-300 text-xs rounded border border-red-900/50 hover:border-red-700 transition-colors"
+            className="px-3 py-1.5 bg-white hover:bg-red-50 text-red-400 hover:text-red-600 text-xs rounded border border-red-200 hover:border-red-300 transition-colors"
           >
             Clear pledges
           </button>
           <button
             onClick={onClose}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-600 transition-colors"
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded border border-gray-200 transition-colors"
           >
             ← Back
           </button>
@@ -258,20 +265,20 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
       </div>
 
       {/* Tabs */}
-      <div className="bg-gray-900 border-b border-gray-700 flex">
+      <div className="bg-white border-b border-gray-200 flex">
         {[
           { key: 'all',       label: `All (${groups.length})`,                color: '' },
-          { key: 'confirmed', label: `Confirmed (${confirmedGroups.length})`, color: 'text-green-400' },
-          { key: 'solo',      label: `Review (${soloGroups.length})`,         color: 'text-yellow-400' },
-          { key: 'rejected',  label: `Rejected (${rejectedGroups.length})`,   color: 'text-red-400' },
+          { key: 'confirmed', label: `Confirmed (${confirmedGroups.length})`, color: 'text-green-600' },
+          { key: 'solo',      label: `Review (${soloGroups.length})`,         color: 'text-yellow-600' },
+          { key: 'rejected',  label: `Rejected (${rejectedGroups.length})`,   color: 'text-red-500' },
         ].map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
               tab === t.key
-                ? `${t.color || 'text-white'}`
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+                ? `${t.color || 'text-gray-900'}`
+                : 'border-transparent text-gray-400 hover:text-gray-600'
             }`}
             style={tab === t.key ? { borderBottomColor: 'var(--accent, #3b82f6)' } : {}}
           >
@@ -281,13 +288,13 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
       </div>
 
       {/* Legend */}
-      <div className="bg-gray-900/50 border-b border-gray-800 px-4 py-2 flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+      <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center gap-4 text-xs text-gray-400 flex-wrap">
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+          <span className="w-2.5 h-2.5 rounded-full bg-green-400 inline-block" />
           2+ spotters — confirmed
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
+          <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" />
           1 spotter — verify
         </span>
         <span className="flex items-center gap-1.5 ml-auto">
@@ -298,16 +305,16 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
       {/* Pledge list */}
       <div className="flex-1 overflow-y-auto p-4">
         {displayed.length === 0 ? (
-          <div className="text-center text-gray-600 mt-16 text-sm">No pledges in this category</div>
+          <div className="text-center text-gray-300 mt-16 text-sm">No pledges in this category</div>
         ) : (
           <div className="max-w-2xl mx-auto flex flex-col gap-2">
             {displayed.map(group => {
-              const key        = `${group.paddle}:${group.level}`
-              const status     = statuses[key]
-              const isRejected = status === 'rejected'
+              const key             = `${group.paddle}:${group.level}`
+              const status          = statuses[key]
+              const isRejected      = status === 'rejected'
               const isManualConfirmed = status === 'confirmed'
               const isAutoConfirmed   = group.entries.length > 1
-              const isConfirmed = isAutoConfirmed || isManualConfirmed
+              const isConfirmed     = isAutoConfirmed || isManualConfirmed
 
               return (
                 <SwipeableRow
@@ -315,34 +322,34 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
                   onSwipeLeft={() => setStatus(key, 'confirmed')}
                   onSwipeRight={() => setStatus(key, 'rejected')}
                 >
-                  <div className={`flex items-center gap-4 px-4 py-3 border ${
+                  <div className={`flex items-center gap-4 px-4 py-3 border rounded-xl ${
                     isRejected
-                      ? 'bg-red-950/40 border-red-800/50 opacity-60'
+                      ? 'bg-red-50 border-red-200 opacity-60'
                       : isConfirmed
-                        ? 'bg-green-900/20 border-green-800/50'
-                        : 'bg-yellow-900/20 border-yellow-800/50'
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-yellow-50 border-yellow-200'
                   }`}>
                     <span className={`w-3 h-3 rounded-full shrink-0 ${
-                      isRejected ? 'bg-red-500' : isConfirmed ? 'bg-green-500' : 'bg-yellow-500'
+                      isRejected ? 'bg-red-400' : isConfirmed ? 'bg-green-500' : 'bg-yellow-400'
                     }`} />
-                    <span className={`font-mono font-bold text-xl w-16 shrink-0 ${isRejected ? 'text-gray-500 line-through' : 'text-white'}`}>
+                    <span className={`font-mono font-bold text-xl w-16 shrink-0 ${isRejected ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                       {group.paddle}
                     </span>
-                    <span className={`font-semibold text-lg w-24 shrink-0 ${isRejected ? 'text-gray-600' : 'text-green-400'}`}>
+                    <span className={`font-semibold text-lg w-24 shrink-0 ${isRejected ? 'text-gray-400' : 'text-green-600'}`}>
                       {formatDollars(group.level)}
                     </span>
                     <div className="flex flex-wrap gap-1.5 flex-1">
                       {group.entries.map(e => (
                         <span
                           key={e.spotter_id}
-                          className="bg-gray-700 border border-gray-600 rounded-full px-2.5 py-0.5 text-xs text-gray-200"
+                          className="bg-white border border-gray-200 rounded-full px-2.5 py-0.5 text-xs text-gray-600"
                         >
                           {e.spotter_name}
                         </span>
                       ))}
                     </div>
                     <span className={`text-xs shrink-0 font-semibold ${
-                      isRejected ? 'text-red-500' : isConfirmed ? 'text-green-500' : 'text-yellow-500'
+                      isRejected ? 'text-red-400' : isConfirmed ? 'text-green-600' : 'text-yellow-600'
                     }`}>
                       {isRejected
                         ? '✕ rejected'
@@ -360,33 +367,57 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
         )}
       </div>
 
-      {/* ── Password confirmation modal ── */}
+      {/* Footer */}
+      <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between gap-4 shadow-sm">
+        <div className="text-gray-400 text-sm">
+          {activeGroups.length} active pledge{activeGroups.length !== 1 ? 's' : ''}
+          {rejectedGroups.length > 0 && (
+            <span className="text-red-400 ml-2">· {rejectedGroups.length} rejected</span>
+          )}
+          {pledges.length !== groups.length && (
+            <span className="text-gray-300 ml-2">
+              ({pledges.length - groups.length} duplicate{pledges.length - groups.length !== 1 ? 's' : ''} removed)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setShowDelete(true); setDeletePass1(''); setDeletePass2(''); setDeleteError('') }}
+            className="text-xs px-3 py-1.5 rounded border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors"
+          >
+            Delete event
+          </button>
+          <div className="text-green-600 font-bold text-xl">{formatFull(total)}</div>
+        </div>
+      </div>
+
+      {/* ── Clear pledges modal ── */}
       {showClear && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-10 p-6">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-            <h3 className="text-white font-bold text-lg mb-1">Clear all pledges?</h3>
-            <p className="text-gray-400 text-sm mb-5">This cannot be undone. Enter the event password to confirm.</p>
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 p-6">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-gray-900 font-bold text-lg mb-1">Clear all pledges?</h3>
+            <p className="text-gray-500 text-sm mb-5">This cannot be undone. Enter the event password to confirm.</p>
             <input
               type="password"
               placeholder="Event password"
               value={clearPassword}
               onChange={e => { setClearPassword(e.target.value); setClearError('') }}
               onKeyDown={e => { if (e.key === 'Enter') handleClear(); if (e.key === 'Escape') setShowClear(false) }}
-              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-red-500 mb-2"
+              className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-400 mb-2"
               autoFocus
             />
-            {clearError && <p className="text-red-400 text-sm mb-3">{clearError}</p>}
+            {clearError && <p className="text-red-500 text-sm mb-3">{clearError}</p>}
             <div className="flex gap-2 mt-3">
               <button
                 onClick={handleClear}
                 disabled={clearing}
-                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors"
+                className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors"
               >
                 {clearing ? 'Verifying…' : 'Clear all pledges'}
               </button>
               <button
                 onClick={() => setShowClear(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-2.5 rounded-lg transition-colors"
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-2.5 rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -395,21 +426,52 @@ export default function ReconciliationView({ pledges, cssVars = {}, onClose, onC
         </div>
       )}
 
-      {/* Footer */}
-      <div className="bg-gray-900 border-t border-gray-700 px-4 py-3 flex items-center justify-between">
-        <div className="text-gray-400 text-sm">
-          {activeGroups.length} active pledge{activeGroups.length !== 1 ? 's' : ''}
-          {rejectedGroups.length > 0 && (
-            <span className="text-red-500/70 ml-2">· {rejectedGroups.length} rejected</span>
-          )}
-          {pledges.length !== groups.length && (
-            <span className="text-gray-500 ml-2">
-              ({pledges.length - groups.length} duplicate{pledges.length - groups.length !== 1 ? 's' : ''} removed)
-            </span>
-          )}
+      {/* ── Delete event modal ── */}
+      {showDelete && (
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 p-6">
+          <div className="bg-white border border-red-200 rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-red-600 font-bold text-lg mb-1">Delete this event?</h3>
+            <p className="text-gray-500 text-sm mb-5">
+              This permanently deletes the event, all pledge records, and all levels. Enter the event password twice to confirm.
+            </p>
+            <div className="flex flex-col gap-2 mb-2">
+              <input
+                type="password"
+                placeholder="Event password"
+                value={deletePass1}
+                onChange={e => { setDeletePass1(e.target.value); setDeleteError('') }}
+                onKeyDown={e => e.key === 'Escape' && setShowDelete(false)}
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-400"
+                autoFocus
+              />
+              <input
+                type="password"
+                placeholder="Repeat event password"
+                value={deletePass2}
+                onChange={e => { setDeletePass2(e.target.value); setDeleteError('') }}
+                onKeyDown={e => { if (e.key === 'Enter') handleDelete(); if (e.key === 'Escape') setShowDelete(false) }}
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-400"
+              />
+            </div>
+            {deleteError && <p className="text-red-500 text-sm mb-3">{deleteError}</p>}
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                {deleting ? 'Deleting…' : 'Delete event permanently'}
+              </button>
+              <button
+                onClick={() => setShowDelete(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="text-green-400 font-bold text-xl">{formatFull(total)}</div>
-      </div>
+      )}
     </div>
   )
 }
